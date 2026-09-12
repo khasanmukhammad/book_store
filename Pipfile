@@ -12,6 +12,7 @@ phonenumbers = "*"
 python-decouple = "*"
 djangorestframework-simplejwt = "*"
 psycopg2 = "*"
+djangorestframework-stubs = "*"
 
 [dev-packages]
 

@@ -57,6 +57,7 @@ INSTALLED_APPS = [
     #local apps
     "users",
     "books",
+    "shared",
 ]
 
 MIDDLEWARE = [
@@ -201,6 +202,6 @@ STATIC_URL = "static/"
 # https://docs.djangoproject.com/en/6.1/topics/email/#topic-email-configuration
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
-#AUTH_USER_MODEL = "users.User"
+AUTH_USER_MODEL = "users.User"
 
 EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'
