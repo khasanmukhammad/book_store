@@ -55,7 +55,7 @@ class User(AbstractUser, BaseModel):
                 temp_username = f'{temp_username}{random.randint(1, 100)}'
             self.username = temp_username
 
-    def check_password(self):
+    def check_pass(self):
         if not self.password:
             temp_password = f'password-{uuid.uuid4().__str__().split("-")[-1]}'
             self.password = temp_password

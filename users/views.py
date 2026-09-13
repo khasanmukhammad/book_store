@@ -6,10 +6,11 @@ from rest_framework.permissions import IsAuthenticated, AllowAny
 from rest_framework.generics import CreateAPIView, UpdateAPIView
 from rest_framework.response import Response
 from rest_framework.views import APIView
+from rest_framework_simplejwt.views import TokenObtainPairView
 
 from shared.utility import send_email
 from .models import User, NEW, CODE_VERIFIED, VIA_EMAIL, VIA_PHONE
-from .serilalizers import SignUpSerializer, ChangeUserInformationSerializer
+from .serilalizers import SignUpSerializer, ChangeUserInformationSerializer, LoginSerializer
 
 
 class SignUpView(CreateAPIView):
@@ -117,3 +118,6 @@ class ChangeUserInformationView(UpdateAPIView):
         }
 
         return Response(data, status=status.HTTP_200_OK)
+
+class LoginView(TokenObtainPairView):
+    serializer_class = LoginSerializer

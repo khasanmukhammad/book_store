@@ -1,9 +1,12 @@
+from django.contrib.auth import authenticate
 from django.contrib.auth.password_validation import validate_password
 from rest_framework import serializers
-from rest_framework.exceptions import ValidationError
+from rest_framework.exceptions import ValidationError, PermissionDenied
+from rest_framework_simplejwt import authentication
+from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 
-from shared.utility import send_email, check_email_or_phone
-from .models import User, VIA_EMAIL, VIA_PHONE, CODE_VERIFIED, DONE
+from shared.utility import send_email, check_email_or_phone, check_user_type
+from .models import User, VIA_EMAIL, VIA_PHONE, CODE_VERIFIED, DONE, NEW
 
 
 class SignUpSerializer(serializers.ModelSerializer):
@@ -172,3 +175,69 @@ class ChangeUserInformationSerializer(serializers.Serializer):
             instance.auth_status = DONE
         instance.save()
         return instance
+
+class LoginSerializer(TokenObtainPairSerializer):
+
+    def __init__(self, *args, **kwargs):
+        super(LoginSerializer, self).__init__(*args, **kwargs)
+        self.fields['userinput'] = serializers.CharField(required=True)
+        self.fields['username'] = serializers.CharField(required=False, read_only=True)
+
+    def auth_validate(self, data):
+        user_input = data.get('userinput')
+        if check_user_type(user_input) == 'username':
+            username = user_input
+        elif check_user_type(user_input) == 'email':
+            user = self.get_user(email_iexact=user_input)
+            username = user.username
+        elif check_user_type(user_input) == 'phone':
+            user = self.get_user(phone_number=user_input)
+            username = user.username
+        else:
+            data = {
+                "success": False,
+                "message": "Please enter a valid username or email, phone number.",
+            }
+            raise ValidationError(data)
+
+        authentication_kwargs = {
+            self.username_field: username,
+            'password': data['password'],
+        }
+
+        current_user = User.objects.filter(username__iexact=username).first()
+
+        if current_user is not None and current_user.auth_status in [NEW, CODE_VERIFIED]:
+            raise ValidationError({
+                "success": False,
+                "message": "You are not completely registered.",
+            })
+        user = authenticate(**authentication_kwargs)
+        if user is not None:
+            self.user = user
+        else:
+            raise ValidationError({
+                "success": False,
+                    "message": "Sorry, login or password is incorrect. Please check and try again.",
+            })
+
+    def validate(self, data):
+        self.auth_validate(data)
+        # Hozircha auth_validate() NEW/CODE_VERIFIED ni bloklagani uchun
+        # bu yerga faqat DONE statusli user yetib keladi.
+        # Lekin xavfsizlik uchun explicit tekshiruv sifatida qoldirilgan.
+        if self.user.auth_status not in [DONE]:
+            raise PermissionDenied("You can not login. Permission denied")
+        data = self.user.token()
+        data['auth_status'] = self.user.auth_status
+        data['full_name'] = self.user.full_name
+        return data
+
+    def get_user(self, *kwargs):
+        users = User.objects.filter(*kwargs)
+        if not users.exists():
+            raise ValidationError({
+                "success": False,
+                "message": "User not found.",
+            })
+        return users.first()
