@@ -83,7 +83,7 @@ class User(AbstractUser, BaseModel):
 
     def clean(self):
         self.check_email()
-        self.check_password()
+        self.check_pass()
         self.check_username()
         self.hashing_password()
 
