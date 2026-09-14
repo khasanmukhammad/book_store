@@ -1,7 +1,8 @@
 import datetime
 
+from django.core.exceptions import ObjectDoesNotExist
 from rest_framework import status
-from rest_framework.exceptions import ValidationError
+from rest_framework.exceptions import ValidationError, NotFound
 from rest_framework.permissions import IsAuthenticated, AllowAny
 from rest_framework.generics import CreateAPIView, UpdateAPIView
 from rest_framework.response import Response
@@ -10,10 +11,12 @@ from rest_framework_simplejwt.exceptions import TokenError
 from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 
-from shared.utility import send_email
-from .models import User, NEW, CODE_VERIFIED, VIA_EMAIL, VIA_PHONE
+from .models import UserConfirmation
+from shared.utility import send_email, check_email_or_phone
+from .models import User
+from .constants import AuthStatus, AuthType, ConfirmationPurpose
 from .serilalizers import SignUpSerializer, ChangeUserInformationSerializer, LoginSerializer, \
-    LoginRefreshSerializer, LogoutSerializer
+    LoginRefreshSerializer, LogoutSerializer, ResetPasswordSerializer, ForgotPasswordSerializer
 
 
 class SignUpView(CreateAPIView):
@@ -22,43 +25,59 @@ class SignUpView(CreateAPIView):
     queryset = User.objects.all()
 
 class VerifyView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = (IsAuthenticated,)
 
     def post(self, request, *args, **kwargs):
         user = self.request.user
-        code = request.data.get('code')
+        code = self.request.data.get('code')
 
         try:
             code = int(code)
         except ValueError:
-            raise ValidationError("Invalid code")
+            raise ValidationError("Invalid verification code.")
 
-        self.check_verify(user, code)
-        return Response(
-            data={
-                "success": True,
-                "auth_status": user.auth_status,
-                "access": user.token()["access"],
-                "refresh": user.token()["refresh"],
-            }
-        )
+        verify = self.check_verify(user, code)
+
+        if verify.purpose == ConfirmationPurpose.SIGNUP:
+            if user.auth_status == AuthStatus.NEW:
+                user.auth_status = AuthStatus.CODE_VERIFIED
+                user.save()
+
+            return Response(
+                data={
+                    "success": True,
+                    "auth_status": user.auth_status,
+                    "access": user.token()['access'],
+                    "refresh": user.token()['refresh']
+                }
+            )
+
+        if verify.purpose == ConfirmationPurpose.FORGOT_PASSWORD:
+            return Response(
+                data={
+                    "success": True,
+                    "message": "Verification successful.",
+                    "reset_token": user.token()['access']
+                }
+            )
 
     @staticmethod
     def check_verify(user, code):
-        verifies = user.verify_codes.filter(expiration_time__gte=datetime.datetime.now(), code=code, is_confirmed=False)
-        print(verifies)
-        if not verifies.exists():
-            data = {
-                "message": "Your verification code has expired or incorrect.",
-            }
-            raise ValidationError(data)
-        else:
-            verifies.update(is_confirmed=True)
-        if user.auth_status == NEW:
-            user.auth_status = CODE_VERIFIED
-            user.save()
-        return True
+        verify = user.verify_codes.filter(
+            expiration_time__gte=datetime.datetime.now(),
+            code=code,
+            is_confirmed=False
+        ).first()
 
+        if not verify:
+            raise ValidationError({
+                "message": "Your verification code has expired or incorrect.",
+            })
+
+        verify.is_confirmed = True
+        verify.save()
+
+        return verify
 class GetNewVerifyView(APIView):
     permission_classes = [IsAuthenticated]
 
@@ -66,11 +85,11 @@ class GetNewVerifyView(APIView):
     def get(self, request, *args, **kwargs):
         user = self.request.user
         self.check_verification(user)
-        if user.auth_type == (VIA_EMAIL):
-            code = user.create_verify_code(VIA_EMAIL)
+        if user.auth_type == (AuthType.VIA_EMAIL):
+            code = user.create_verify_code(AuthType.VIA_EMAIL)
             send_email(user.email, code)
-        elif user.auth_type == (VIA_PHONE):
-            code = user.create_verify_code(VIA_PHONE)
+        elif user.auth_type == (AuthType.VIA_PHONE):
+            code = user.create_verify_code(AuthType.VIA_PHONE)
             send_email(user.phone_number, code)
         else:
             data = {
@@ -148,3 +167,52 @@ class LogoutView(APIView):
             return Response(status=400)
 
 
+
+class ForgetPasswordView(APIView):
+    permission_classes = (AllowAny,)
+    serializer_class = ForgotPasswordSerializer
+
+    def post(self, request, *args, **kwargs):
+        serializer = self.serializer_class(data=self.request.data)
+        serializer.is_valid(raise_exception=True)
+        email_or_phone = serializer.validated_data.get('email_or_phone')
+        user = serializer.validated_data.get('user')
+        if check_email_or_phone(email_or_phone) == 'phone':
+            code = user.create_verify_code(AuthType.VIA_PHONE, ConfirmationPurpose.FORGOT_PASSWORD)
+            send_email(email_or_phone, code)
+        elif check_email_or_phone(email_or_phone) == 'email':
+            code = user.create_verify_code(AuthType.VIA_EMAIL, ConfirmationPurpose.FORGOT_PASSWORD)
+            send_email(email_or_phone, code)
+
+        return Response(
+            {
+                "success": True,
+                'message': "verify code send successfully.",
+                "user_status": user.auth_status,
+            }, status=200
+        )
+
+
+
+class ResetPasswordView(UpdateAPIView):
+    serializer_class = ResetPasswordSerializer
+    permission_classes = [IsAuthenticated, ]
+    http_method_names = ['patch', 'put']
+
+    def get_object(self):
+        return self.request.user
+
+    def update(self, request, *args, **kwargs):
+        response = super(ResetPasswordView, self).update(request, *args, **kwargs)
+        try:
+            user = User.objects.get(id=response.data.get('id'))
+        except ObjectDoesNotExist as e:
+            raise NotFound(detail='User not found')
+        return Response(
+            {
+                'success': True,
+                'message': "Password change successfully.",
+                'access': user.token()['access'],
+                'refresh': user.token()['refresh'],
+            }
+        )

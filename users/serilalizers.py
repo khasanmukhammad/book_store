@@ -1,15 +1,16 @@
 from django.contrib.auth import authenticate
 from django.contrib.auth.models import update_last_login
 from django.contrib.auth.password_validation import validate_password
+from django.db.models import Q
 from rest_framework import serializers
-from rest_framework.exceptions import ValidationError, PermissionDenied
+from rest_framework.exceptions import ValidationError, PermissionDenied, NotFound
 from rest_framework.generics import get_object_or_404
-from rest_framework_simplejwt import authentication
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer, TokenRefreshSerializer
 from rest_framework_simplejwt.tokens import AccessToken
 
 from shared.utility import send_email, check_email_or_phone, check_user_type
-from .models import User, VIA_EMAIL, VIA_PHONE, CODE_VERIFIED, DONE, NEW
+from .models import User
+from .constants import AuthStatus, AuthType, ConfirmationPurpose
 
 
 class SignUpSerializer(serializers.ModelSerializer):
@@ -35,11 +36,11 @@ class SignUpSerializer(serializers.ModelSerializer):
 
     def create(self, validated_data):
         user = super(SignUpSerializer, self).create(validated_data)
-        if user.auth_type == VIA_EMAIL:
-            code = user.create_verify_code(VIA_EMAIL)
+        if user.auth_type == AuthType.VIA_EMAIL:
+            code = user.create_verify_code(AuthType.VIA_EMAIL, ConfirmationPurpose.SIGNUP )
             send_email(user.email, code)
-        elif user.auth_type == VIA_PHONE:
-            code = user.create_verify_code(VIA_PHONE)
+        elif user.auth_type == AuthType.VIA_PHONE:
+            code = user.create_verify_code(AuthType.VIA_PHONE, ConfirmationPurpose.SIGNUP)
             send_email(user.phone_number, code)
             #send_phone_code(user.phone_number, code)
         user.save()
@@ -58,12 +59,12 @@ class SignUpSerializer(serializers.ModelSerializer):
         if input_type == 'email':
             data = {
                 "email": user_input,
-                "auth_type": VIA_EMAIL,
+                "auth_type": AuthType.VIA_EMAIL,
             }
         elif input_type == 'phone':
             data = {
                 "phone_number": user_input,
-                "auth_type": VIA_PHONE,
+                "auth_type": AuthType.VIA_PHONE,
             }
         else:
             data = {
@@ -174,8 +175,8 @@ class ChangeUserInformationSerializer(serializers.Serializer):
         instance.username = validated_data.get('username', instance.username)
         if validated_data.get('password'):
             instance.set_password(validated_data.get('password'))
-        if instance.auth_status == CODE_VERIFIED:
-            instance.auth_status = DONE
+        if instance.auth_status == AuthStatus.CODE_VERIFIED:
+            instance.auth_status = AuthStatus.DONE
         instance.save()
         return instance
 
@@ -210,7 +211,7 @@ class LoginSerializer(TokenObtainPairSerializer):
 
         current_user = User.objects.filter(username__iexact=username).first()
 
-        if current_user is not None and current_user.auth_status in [NEW, CODE_VERIFIED]:
+        if current_user is not None and current_user.auth_status in [AuthStatus.NEW, AuthStatus.CODE_VERIFIED]:
             raise ValidationError({
                 "success": False,
                 "message": "You are not completely registered.",
@@ -229,7 +230,7 @@ class LoginSerializer(TokenObtainPairSerializer):
         # Hozircha auth_validate() NEW/CODE_VERIFIED ni bloklagani uchun
         # bu yerga faqat DONE statusli user yetib keladi.
         # Lekin xavfsizlik uchun explicit tekshiruv sifatida qoldirilgan.
-        if self.user.auth_status not in [DONE]:
+        if self.user.auth_status not in [AuthStatus.DONE]:
             raise PermissionDenied("You can not login. Permission denied")
         data = self.user.token()
         data['auth_status'] = self.user.auth_status
@@ -257,3 +258,51 @@ class LoginRefreshSerializer(TokenRefreshSerializer):
 
 class LogoutSerializer(serializers.Serializer):
     refresh = serializers.CharField()
+
+
+class ForgotPasswordSerializer(serializers.Serializer):
+    email_or_phone = serializers.CharField(write_only=True, required=True)
+
+    def validate(self, attrs):
+        email_or_phone = attrs.get('email_or_phone', None)
+        if email_or_phone is None:
+            raise ValidationError({
+                "success": False,
+                "message": "Email or phone number must be provided."
+            })
+        user = User.objects.filter(Q(phone_number=email_or_phone) | Q(email=email_or_phone))
+        if not user.exists():
+            raise NotFound(detail="User not found.")
+        attrs['user'] = user.first()
+        return attrs
+
+
+class ResetPasswordSerializer(serializers.ModelSerializer):
+    id = serializers.UUIDField(read_only=True)
+    password = serializers.CharField(min_length=8, write_only=True, required=True)
+    confirm_password = serializers.CharField(min_length=8, write_only=True, required=True)
+
+    class Meta:
+        model = User
+        fields = (
+            'id',
+            'password',
+            'confirm_password',
+        )
+
+    def validate(self, data):
+        password = data.get('password', None)
+        confirm_password = data.get('confirm_password', None)
+        if password != confirm_password:
+            raise ValidationError({
+                'success': False,
+                'message': 'Passwords must match.'
+            })
+        if password:
+            validate_password(password)
+        return data
+
+    def update(self, instance, validated_data):
+        password = validated_data.pop('password')
+        instance.set_password(password)
+        return super(ResetPasswordSerializer, self).update(instance, validated_data)
