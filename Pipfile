@@ -13,6 +13,7 @@ python-decouple = "*"
 djangorestframework-simplejwt = "*"
 psycopg2 = "*"
 djangorestframework-stubs = "*"
+pillow = "*"
 
 [dev-packages]
 
