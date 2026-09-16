@@ -1,10 +1,12 @@
+from django.core.serializers import serialize
 from django.shortcuts import render
 from rest_framework import generics, status
+from rest_framework.exceptions import ValidationError
 from rest_framework.permissions import AllowAny, IsAdminUser
 from rest_framework.response import Response
 
-from books.models import Book
-from books.seriaizers import BookListSerializer, BookDetailSerializer, BookAddSerializer
+from books.models.book import Book
+from books.seriaizers import BookListSerializer, BookDetailSerializer, BookAddSerializer, BookCategorySerializers
 from shared.custom_pagination import CustomPagination
 
 
@@ -56,7 +58,7 @@ class BookDeleteUpdateView(generics.DestroyAPIView):
             }
         )
 
-
+#permission everyone
 class BookListView(generics.ListAPIView):
     serializer_class = BookListSerializer
     permission_classes = [AllowAny]
@@ -71,3 +73,21 @@ class BookDetailView(generics.RetrieveAPIView):
 
     def get_queryset(self):
         return Book.objects.all()
+
+class BookCategoryListView(generics.ListAPIView):
+    serializer_class = BookCategorySerializers
+    permission_classes = [AllowAny]
+    pagination_class = CustomPagination
+
+    def post(self, request, *args, **kwargs):
+        category = request.data.get('category')
+        book = Book.objects.filter(category=category)
+
+        serializer = BookListSerializer(book, many=True)
+        return Response(
+            data={
+                'success': True,
+                "data": serializer.data,
+            }
+        )
+

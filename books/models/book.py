@@ -1,6 +1,6 @@
 from django.core.validators import FileExtensionValidator
 from django.db import models
-from books.constants import BookStatus
+from books.constants import BookStatus, BookCategory
 
 from shared.models import BaseModel
 
@@ -16,7 +16,7 @@ class Book(BaseModel):
     title = models.CharField(max_length=200)
     description = models.TextField()
     image = models.ImageField(upload_to='templates/images', validators=[FileExtensionValidator(['jpg', 'png', 'jpeg', 'webp'])])
-    category = models.TextField()
+    category = models.TextField(choices=BookCategory.choices)
     purchase_price = models.DecimalField(max_digits=10, decimal_places=2)
     rental_price = models.DecimalField(max_digits=10, decimal_places=2)
     status = models.CharField(max_length=30, choices=BookStatus.choices, default=BookStatus.AVAILABLE)
