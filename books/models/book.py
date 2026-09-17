@@ -21,5 +21,8 @@ class Book(BaseModel):
     rental_price = models.DecimalField(max_digits=10, decimal_places=2)
     status = models.CharField(max_length=30, choices=BookStatus.choices, default=BookStatus.AVAILABLE)
 
+    class Meta:
+        ordering = ['-created_at']
+
     def __str__(self):
         return self.title

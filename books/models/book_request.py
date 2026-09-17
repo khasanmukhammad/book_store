@@ -1,9 +1,7 @@
 import uuid
-
 from django.db import models
-
 from books.models.book import Book
-from models import User
+from users.models import User
 
 
 class BookRequest(models.Model):

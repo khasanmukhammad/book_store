@@ -1,12 +1,10 @@
-from django.core.serializers import serialize
-from django.shortcuts import render
 from rest_framework import generics, status
-from rest_framework.exceptions import ValidationError
-from rest_framework.permissions import AllowAny, IsAdminUser
+from rest_framework.permissions import AllowAny, IsAdminUser, IsAuthenticated
 from rest_framework.response import Response
 
 from books.models.book import Book
-from books.seriaizers import BookListSerializer, BookDetailSerializer, BookAddSerializer, BookCategorySerializers
+from books.seriaizers import BookListSerializer, BookDetailSerializer, BookAddSerializer, BookCategorySerializers, \
+    RequestToBookSerializer
 from shared.custom_pagination import CustomPagination
 
 
@@ -82,7 +80,6 @@ class BookCategoryListView(generics.ListAPIView):
     def post(self, request, *args, **kwargs):
         category = request.data.get('category')
         book = Book.objects.filter(category=category)
-
         serializer = BookListSerializer(book, many=True)
         return Response(
             data={
@@ -91,3 +88,23 @@ class BookCategoryListView(generics.ListAPIView):
             }
         )
 
+class RequestToBookView(generics.CreateAPIView):
+    serializer_class = RequestToBookSerializer
+    permission_classes = [IsAuthenticated]
+
+    def get_serializer_context(self):
+        context = super().get_serializer_context()
+        context['book'] = generics.get_object_or_404(Book, pk=self.kwargs['pk'])
+        return context
+
+    def create(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        book_request = serializer.save()
+
+        return Response({
+            "success": True,
+            "message": "Kitob siz uchun band qilindi. Iltimos, 1 kun ichida olib keting.",
+            "id": book_request.id,
+            "book": book_request.book.title
+        }, status=status.HTTP_201_CREATED)

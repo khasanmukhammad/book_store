@@ -1,10 +1,11 @@
-from unicodedata import category
-
 from rest_framework import serializers
 from rest_framework.exceptions import ValidationError
+from rest_framework.response import Response
 
 from books.constants import BookStatus
+from books.models import book
 from books.models.book import Book
+from books.models.book_request import BookRequest
 
 #permission only admin
 class BookAddSerializer(serializers.ModelSerializer):
@@ -30,7 +31,7 @@ class BookListSerializer(serializers.ModelSerializer):
         fields = ('id', 'title', 'status')
 
 class BookDetailSerializer(serializers.ModelSerializer):
-    id = serializers.IntegerField(read_only=True)
+    id = serializers.UUIDField(read_only=True)
 
     class Meta:
         model = Book
@@ -43,5 +44,27 @@ class BookCategorySerializers(serializers.ModelSerializer):
 
     class Meta:
         model = Book
-        fields = ('category')
+        fields = 'category'
 
+
+class RequestToBookSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = BookRequest
+        fields = ['id', 'book']
+        read_only_fields = ('id', 'book',)
+
+    def validate(self, attrs):
+        book = self.context['book']
+        if book.status == BookStatus.BOOKED:
+            raise serializers.ValidationError(
+                "Uzur, bu kitob band qilingan! 3 kun ichida qayta habar oling."
+            )
+        return attrs
+
+    def create(self, validated_data):
+        book = self.context['book']
+        validated_data['book'] = book
+        validated_data['user'] = self.context['request'].user
+        book.status = BookStatus.BOOKED
+        book.save()
+        return super().create(validated_data)
