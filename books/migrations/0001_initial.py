@@ -48,7 +48,7 @@ class Migration(migrations.Migration):
                 (
                     "image",
                     models.ImageField(
-                        upload_to="templates/images",
+                        upload_to="images",
                         validators=[
                             django.core.validators.FileExtensionValidator(
                                 ["jpg", "png", "jpeg", "webp"]

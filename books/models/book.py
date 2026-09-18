@@ -15,7 +15,7 @@ class Category(models.Model):
 class Book(BaseModel):
     title = models.CharField(max_length=200)
     description = models.TextField()
-    image = models.ImageField(upload_to='templates/images', validators=[FileExtensionValidator(['jpg', 'png', 'jpeg', 'webp'])])
+    image = models.ImageField(upload_to='images', validators=[FileExtensionValidator(['jpg', 'png', 'jpeg', 'webp'])])
     category = models.TextField(choices=BookCategory.choices)
     purchase_price = models.DecimalField(max_digits=10, decimal_places=2)
     rental_price = models.DecimalField(max_digits=10, decimal_places=2)

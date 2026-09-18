@@ -17,7 +17,7 @@ class BookAddSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Book
-        fields = ('id',
+        fields = ('image', 'id',
                   'title', 'description',
                   'category',
                   'purchase_price', 'rental_price')
@@ -28,14 +28,14 @@ class BookListSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Book
-        fields = ('id', 'title', 'status')
+        fields = ('image', 'id', 'title', 'status')
 
 class BookDetailSerializer(serializers.ModelSerializer):
     id = serializers.UUIDField(read_only=True)
 
     class Meta:
         model = Book
-        fields = ('id',
+        fields = ('image', 'id',
                   'title', 'description',
                   'category', 'rental_price',
                   'purchase_price', 'status')
