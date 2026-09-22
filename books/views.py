@@ -80,7 +80,7 @@ class BookCategoryListView(generics.ListAPIView):
     def post(self, request, *args, **kwargs):
         category = request.data.get('category')
         book = Book.objects.filter(category=category)
-        serializer = BookListSerializer(book, many=True)
+        serializer = BookListSerializer(book, many=True, context={'request': request})
         return Response(
             data={
                 'success': True,
