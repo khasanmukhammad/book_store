@@ -162,12 +162,8 @@ button.block { width: 100%; }
   width: 34px;
   height: 34px;
   border-radius: 9px;
-  background: var(--accent);
-  color: #fff;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-family: var(--font-serif);
+  object-fit: cover;
+  display: block;
 }
 
 .user-line {
