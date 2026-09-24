@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="uz">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Kitob do'koni</title>
+<script>
+  // Sahifa chizilishidan oldin rejimni o'rnatamiz — bo'lmasa bir lahza
+  // noto'g'ri rangda "miltillash" bo'ladi.
+  document.documentElement.setAttribute('data-theme', localStorage.getItem('theme') || 'dark');
+</script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Lora:wght@500;600&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<header class="topbar">
+  <div class="brand-col">
+    <a href="#/" class="brand">
+      <span class="brand-mark">K</span>
+      <span class="brand-name">Kitob do'koni</span>
+    </a>
+    <div class="user-line" id="user-line"></div>
+  </div>
+  <nav class="topnav" id="topnav"></nav>
+</header>
+
+<main id="app" class="app"></main>
+
+<footer class="build-stamp">kitob-frontend build 2026-09-21-3</footer>
+
+<div id="toast" class="toast" hidden></div>
+
+<script src="config.js"></script>
+<script src="api.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
