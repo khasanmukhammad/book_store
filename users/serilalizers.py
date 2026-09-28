@@ -192,7 +192,7 @@ class LoginSerializer(TokenObtainPairSerializer):
         if check_user_type(user_input) == 'username':
             username = user_input
         elif check_user_type(user_input) == 'email':
-            user = self.get_user(email_iexact=user_input)
+            user = self.get_user(email__iexact=user_input)
             username = user.username
         elif check_user_type(user_input) == 'phone':
             user = self.get_user(phone_number=user_input)
@@ -237,8 +237,8 @@ class LoginSerializer(TokenObtainPairSerializer):
         data['full_name'] = self.user.full_name
         return data
 
-    def get_user(self, *kwargs):
-        users = User.objects.filter(*kwargs)
+    def get_user(self, **kwargs):
+        users = User.objects.filter(**kwargs)
         if not users.exists():
             raise ValidationError({
                 "success": False,

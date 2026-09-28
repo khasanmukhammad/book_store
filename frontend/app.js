@@ -459,7 +459,10 @@ function pageForgotPasswordVerify() {
     const btn = e.target.querySelector("button");
     btn.disabled = true;
     try {
-      const data = await UsersAPI.forgotPasswordVerify(code);
+    const data = await UsersAPI.forgotPasswordVerify(
+        forgotPasswordContact,
+        code
+    );
       Auth.setTokens({ access: data.reset_token });
       navigate("/reset-password");
     } catch (err) {

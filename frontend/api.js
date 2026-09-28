@@ -120,8 +120,14 @@ const UsersAPI = {
   // Forgot-password kodi ham xuddi shu /users/verify/ orqali tekshiriladi.
   // Backend kod to'g'ri va maqsadi FORGOT_PASSWORD bo'lsa, "reset_token"
   // qaytaradi — shu token bilan keyin parol yangilanadi.
-  forgotPasswordVerify: (code) =>
-    apiRequest("/users/verify/", { method: "POST", auth: true, body: { code } }),
+forgotPasswordVerify: (email_or_phone, code) =>
+    apiRequest("/users/verify/", {
+        method: "POST",
+        body: {
+            email_or_phone,
+            code
+        }
+    }),
 
   resetPassword: (password, confirm_password) =>
     apiRequest("/users/reset-password/", { method: "PATCH", auth: true, body: { password, confirm_password } })

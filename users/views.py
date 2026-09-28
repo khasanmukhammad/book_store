@@ -1,6 +1,7 @@
 import datetime
 
 from django.core.exceptions import ObjectDoesNotExist
+from django.db.models import Q
 from rest_framework import status
 from rest_framework.exceptions import ValidationError, NotFound
 from rest_framework.permissions import IsAuthenticated, AllowAny
@@ -25,16 +26,33 @@ class SignUpView(CreateAPIView):
     queryset = User.objects.all()
 
 class VerifyView(APIView):
-    permission_classes = (IsAuthenticated,)
+    permission_classes = (AllowAny,)
 
     def post(self, request, *args, **kwargs):
-        user = self.request.user
-        code = self.request.data.get('code')
+        code = request.data.get('code')
+        email_or_phone = request.data.get('email_or_phone')
 
         try:
             code = int(code)
-        except ValueError:
+        except (ValueError, TypeError):
             raise ValidationError("Invalid verification code.")
+
+        # Forgot password uchun user email/phone orqali topiladi
+        if email_or_phone:
+            user = User.objects.filter(
+                Q(email=email_or_phone) |
+                Q(phone_number=email_or_phone)
+            ).first()
+
+            if not user:
+                raise ValidationError("User not found.")
+
+        # Signup verification uchun token orqali kelgan user
+        else:
+            if not request.user.is_authenticated:
+                raise ValidationError("Email or phone number is required.")
+
+            user = request.user
 
         verify = self.check_verify(user, code)
 
@@ -43,23 +61,19 @@ class VerifyView(APIView):
                 user.auth_status = AuthStatus.CODE_VERIFIED
                 user.save()
 
-            return Response(
-                data={
-                    "success": True,
-                    "auth_status": user.auth_status,
-                    "access": user.token()['access'],
-                    "refresh": user.token()['refresh']
-                }
-            )
+            return Response({
+                "success": True,
+                "auth_status": user.auth_status,
+                "access": user.token()['access'],
+                "refresh": user.token()['refresh']
+            })
 
         if verify.purpose == ConfirmationPurpose.FORGOT_PASSWORD:
-            return Response(
-                data={
-                    "success": True,
-                    "message": "Verification successful.",
-                    "reset_token": user.token()['access']
-                }
-            )
+            return Response({
+                "success": True,
+                "message": "Verification successful.",
+                "reset_token": user.token()['access']
+            })
 
     @staticmethod
     def check_verify(user, code):
