@@ -29,6 +29,13 @@ function formatPrice(value) {
   return num.toLocaleString("uz-UZ") + " so'm";
 }
 
+// Narx maydoniga foydalanuvchi "50.000" yoki "50 000" deb yozishi mumkin
+// (ming ajratkich sifatida). Bunday belgilarni olib tashlab, faqat raqamni
+// qoldiramiz — aks holda "50.000" HTML input orqali 50 ga aylanib qolardi.
+function parsePrice(value) {
+  return (value || "").replace(/[^\d]/g, "");
+}
+
 // Backend ba'zi javoblarda rasmning to'liq manzilini emas, faqat nisbiy
 // yo'lini qaytarishi mumkin (masalan /books/category/ javobida). Bunday
 // holatda oldiga backend manzilini qo'shib to'g'irlab olamiz.
@@ -121,6 +128,9 @@ const routes = [
   { pattern: /^\/verify$/, handler: () => pageVerify() },
   { pattern: /^\/complete-profile$/, handler: () => pageCompleteProfile() },
   { pattern: /^\/login$/, handler: () => pageLogin() },
+  { pattern: /^\/forgot-password$/, handler: () => pageForgotPasswordRequest() },
+  { pattern: /^\/forgot-password-verify$/, handler: () => pageForgotPasswordVerify() },
+  { pattern: /^\/reset-password$/, handler: () => pageResetPassword() },
   { pattern: /^\/profile$/, handler: () => pageProfileEdit() },
   { pattern: /^\/book\/([^/]+)$/, handler: (m) => pageBookDetail(m[1]) },
   { pattern: /^\/admin\/add$/, handler: () => pageAdminAdd() },
@@ -334,6 +344,7 @@ function pageLogin() {
         <div id="login-error" class="error-text" hidden></div>
         <button type="submit" class="primary block">Kirish</button>
       </form>
+      <p class="auth-foot"><a href="#/forgot-password">Parolni unutdingizmi?</a></p>
       <p class="auth-foot"><a href="#/signup">Ro'yxatdan o'tish</a></p>
     </div>
   `;
@@ -355,6 +366,146 @@ function pageLogin() {
       renderNav();
       showToast("Xush kelibsiz!");
       navigate("/");
+    } catch (err) {
+      errorBox.textContent = err.message;
+      errorBox.hidden = false;
+    } finally {
+      btn.disabled = false;
+    }
+  });
+}
+
+let forgotPasswordContact = "";
+
+function pageForgotPasswordRequest() {
+  app.innerHTML = `
+    <div class="card auth-card">
+      <h1 class="auth-title">Parolni tiklash</h1>
+      <p class="auth-sub">Email yoki telefon raqamingizni kiriting</p>
+      <form id="forgot-form">
+        <div class="field">
+          <label>Email yoki telefon raqam</label>
+          <input type="text" id="contact" placeholder="email@example.com yoki +998901234567" required />
+        </div>
+        <div id="forgot-error" class="error-text" hidden></div>
+        <button type="submit" class="primary block">Kod yuborish</button>
+      </form>
+      <p class="auth-foot"><a href="#/login">Kirishga qaytish</a></p>
+    </div>
+  `;
+
+  document.getElementById("forgot-form").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const errorBox = document.getElementById("forgot-error");
+    errorBox.hidden = true;
+    const contact = document.getElementById("contact").value.trim();
+    const btn = e.target.querySelector("button");
+    btn.disabled = true;
+    try {
+      await UsersAPI.forgotPasswordRequest(contact);
+      forgotPasswordContact = contact;
+      showToast("Tasdiqlash kodi yuborildi");
+      navigate("/forgot-password-verify");
+    } catch (err) {
+      errorBox.textContent = err.message;
+      errorBox.hidden = false;
+    } finally {
+      btn.disabled = false;
+    }
+  });
+}
+
+function pageForgotPasswordVerify() {
+  app.innerHTML = `
+    <div class="card auth-card">
+      <h1 class="auth-title">Kodni tasdiqlang</h1>
+      <p class="auth-sub">${forgotPasswordContact ? escapeHtml(forgotPasswordContact) + " manziliga yuborilgan kod" : "Yuborilgan tasdiqlash kodi"}</p>
+      <form id="forgot-verify-form">
+        <div class="otp-row">
+          <input type="text" maxlength="1" class="fp-otp-digit" inputmode="numeric" />
+          <input type="text" maxlength="1" class="fp-otp-digit" inputmode="numeric" />
+          <input type="text" maxlength="1" class="fp-otp-digit" inputmode="numeric" />
+          <input type="text" maxlength="1" class="fp-otp-digit" inputmode="numeric" />
+        </div>
+        <div id="forgot-verify-error" class="error-text" hidden></div>
+        <button type="submit" class="primary block">Tasdiqlash</button>
+      </form>
+      <p class="auth-foot"><a href="#/forgot-password">Ortga</a></p>
+    </div>
+  `;
+
+  const digits = [...document.querySelectorAll(".fp-otp-digit")];
+  digits.forEach((input, i) => {
+    input.addEventListener("input", () => {
+      input.value = input.value.replace(/\D/g, "");
+      if (input.value && digits[i + 1]) digits[i + 1].focus();
+    });
+    input.addEventListener("keydown", (e) => {
+      if (e.key === "Backspace" && !input.value && digits[i - 1]) digits[i - 1].focus();
+    });
+  });
+  digits[0].focus();
+
+  document.getElementById("forgot-verify-form").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const errorBox = document.getElementById("forgot-verify-error");
+    errorBox.hidden = true;
+    const code = digits.map(d => d.value).join("");
+    if (code.length !== 4) {
+      errorBox.textContent = "Iltimos, 4 xonali kodni to'liq kiriting.";
+      errorBox.hidden = false;
+      return;
+    }
+    const btn = e.target.querySelector("button");
+    btn.disabled = true;
+    try {
+      const data = await UsersAPI.forgotPasswordVerify(code);
+      Auth.setTokens({ access: data.reset_token });
+      navigate("/reset-password");
+    } catch (err) {
+      errorBox.textContent = err.message;
+      errorBox.hidden = false;
+    } finally {
+      btn.disabled = false;
+    }
+  });
+}
+
+function pageResetPassword() {
+  if (!Auth.getAccess()) { navigate("/forgot-password"); return; }
+
+  app.innerHTML = `
+    <div class="card auth-card">
+      <h1 class="auth-title">Yangi parol o'rnating</h1>
+      <form id="reset-password-form">
+        <div class="field">
+          <label>Yangi parol</label>
+          <input type="password" id="new-password" required />
+        </div>
+        <div class="field">
+          <label>Parolni tasdiqlang</label>
+          <input type="password" id="new-confirm-password" required />
+        </div>
+        <div id="reset-password-error" class="error-text" hidden></div>
+        <button type="submit" class="primary block">Saqlash</button>
+      </form>
+    </div>
+  `;
+
+  document.getElementById("reset-password-form").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const errorBox = document.getElementById("reset-password-error");
+    errorBox.hidden = true;
+    const password = document.getElementById("new-password").value;
+    const confirm_password = document.getElementById("new-confirm-password").value;
+    const btn = e.target.querySelector("button");
+    btn.disabled = true;
+    try {
+      await UsersAPI.resetPassword(password, confirm_password);
+      Auth.clear();
+      forgotPasswordContact = "";
+      showToast("Parol yangilandi. Endi kiring.");
+      navigate("/login");
     } catch (err) {
       errorBox.textContent = err.message;
       errorBox.hidden = false;
@@ -619,11 +770,11 @@ async function pageAdminAdd() {
           <div class="field-row">
             <div class="field">
               <label>Ijara narxi (so'm)</label>
-              <input type="number" id="rental_price" required />
+              <input type="text" inputmode="numeric" id="rental_price" placeholder="50000" required />
             </div>
             <div class="field">
               <label>Sotib olish narxi (so'm)</label>
-              <input type="number" id="purchase_price" required />
+              <input type="text" inputmode="numeric" id="purchase_price" placeholder="250000" required />
             </div>
           </div>
           <div class="field">
@@ -641,6 +792,18 @@ async function pageAdminAdd() {
   const uploadBox = document.getElementById("upload-box");
   const imageInput = document.getElementById("image");
   uploadBox.addEventListener("click", () => imageInput.click());
+
+  // Narx maydonlariga faqat raqam kiritish mumkin — nuqta, probel yoki
+  // boshqa belgi yozsangiz ham, darhol olib tashlanadi. Shunday qilib
+  // ekranda ko'rgan raqamingiz backendga aynan shunday yuboriladi,
+  // hech qanday "50.000 -> 50" kabi noaniqlik qolmaydi.
+  ["rental_price", "purchase_price"].forEach(id => {
+    const input = document.getElementById(id);
+    input.addEventListener("input", () => {
+      const digitsOnly = input.value.replace(/\D/g, "");
+      if (input.value !== digitsOnly) input.value = digitsOnly;
+    });
+  });
   imageInput.addEventListener("change", () => {
     const file = imageInput.files[0];
     if (!file) return;
@@ -659,8 +822,8 @@ async function pageAdminAdd() {
     formData.append("title", document.getElementById("title").value.trim());
     formData.append("description", document.getElementById("description").value.trim());
     formData.append("category", document.getElementById("category").value);
-    formData.append("rental_price", document.getElementById("rental_price").value);
-    formData.append("purchase_price", document.getElementById("purchase_price").value);
+    formData.append("rental_price", parsePrice(document.getElementById("rental_price").value));
+    formData.append("purchase_price", parsePrice(document.getElementById("purchase_price").value));
     if (imageInput.files[0]) formData.append("image", imageInput.files[0]);
 
     const btn = e.target.querySelector("button[type=submit]");

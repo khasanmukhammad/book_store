@@ -112,7 +112,19 @@ const UsersAPI = {
     apiRequest("/users/login/", { method: "POST", body: { userinput, password } }),
 
   logout: () =>
-    apiRequest("/users/logout/", { method: "POST", auth: true, body: { refresh: Auth.getRefresh() } })
+    apiRequest("/users/logout/", { method: "POST", auth: true, body: { refresh: Auth.getRefresh() } }),
+
+  forgotPasswordRequest: (email_or_phone) =>
+    apiRequest("/users/forget-password/", { method: "POST", body: { email_or_phone } }),
+
+  // Forgot-password kodi ham xuddi shu /users/verify/ orqali tekshiriladi.
+  // Backend kod to'g'ri va maqsadi FORGOT_PASSWORD bo'lsa, "reset_token"
+  // qaytaradi — shu token bilan keyin parol yangilanadi.
+  forgotPasswordVerify: (code) =>
+    apiRequest("/users/verify/", { method: "POST", auth: true, body: { code } }),
+
+  resetPassword: (password, confirm_password) =>
+    apiRequest("/users/reset-password/", { method: "PATCH", auth: true, body: { password, confirm_password } })
 };
 
 // ---- Books app ----
