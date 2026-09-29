@@ -18,15 +18,63 @@ function navigate(path) {
 }
 
 function escapeHtml(str) {
-  const div = document.createElement("div");
-  div.textContent = str ?? "";
-  return div.innerHTML;
+  return String(str ?? "").replace(/[&<>"']/g, (c) => ({
+    "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
+  }[c]));
 }
 
+// Yangi tasdiqlash kodi so'rash (GET /users/new-verify/). Signup va parolni
+// tiklash sahifalarida bir xil ishlatiladi. Backend eski kod hali amal qilayotgan
+// bo'lsa yangisini bermaydi ("Your verification code is available.") — shunda
+// foydalanuvchiga tushunarli xabar ko'rsatamiz.
+async function requestNewCode(digits) {
+  try {
+    await UsersAPI.resendCode();
+    showToast("Kod qayta yuborildi");
+    digits.forEach((d) => { d.value = ""; });
+    digits[0].focus();
+  } catch (err) {
+    if (/code is available/i.test(err.message)) {
+      showToast("Oldingi kod hali amal qilmoqda. Biroz kutib, qayta urinib ko'ring.", "error");
+    } else if (err.status === 401) {
+      showToast("Yangi kod olish uchun faol sessiya kerak. Avval tizimga kiring.", "error");
+    } else {
+      showToast(err.message, "error");
+    }
+  }
+}
+
+// 4 xonali kod maydonlari: raqam kiritilganda keyingisiga o'tadi,
+// Backspace oldingisiga qaytadi, butun kodni qo'yib (paste) yuborish ham mumkin.
+function bindOtpInputs(digits) {
+  digits.forEach((input, i) => {
+    input.addEventListener("input", () => {
+      input.value = input.value.replace(/\D/g, "").slice(-1);
+      if (input.value && digits[i + 1]) digits[i + 1].focus();
+    });
+    input.addEventListener("keydown", (e) => {
+      if (e.key === "Backspace" && !input.value && digits[i - 1]) digits[i - 1].focus();
+    });
+    input.addEventListener("paste", (e) => {
+      const text = (e.clipboardData || window.clipboardData).getData("text").replace(/\D/g, "");
+      if (!text) return;
+      e.preventDefault();
+      digits.forEach((d, idx) => { d.value = text[idx] || ""; });
+      digits[Math.min(text.length, digits.length) - 1].focus();
+    });
+  });
+  digits[0].focus();
+}
+
+// Narxni "50 000 so'm" ko'rinishida chiqaradi. toLocaleString("uz-UZ") ga
+// tayanmaymiz — turli brauzerlarda u "50,000" yoki "50 000" chiqarishi mumkin.
 function formatPrice(value) {
   const num = Number(value);
-  if (Number.isNaN(num)) return value;
-  return num.toLocaleString("uz-UZ") + " so'm";
+  if (value === null || value === undefined || value === "" || Number.isNaN(num)) return value ?? "";
+  const hasFraction = Math.abs(num - Math.round(num)) > 0.0049;
+  const [intPart, frac] = Math.abs(num).toFixed(hasFraction ? 2 : 0).split(".");
+  const grouped = intPart.replace(/\B(?=(\d{3})+(?!\d))/g, "\u00a0");
+  return (num < 0 ? "-" : "") + grouped + (frac ? "." + frac : "") + " so'm";
 }
 
 // Narx maydoniga foydalanuvchi "50.000" yoki "50 000" deb yozishi mumkin
@@ -150,6 +198,13 @@ function router() {
   app.innerHTML = `<div class="empty-state">Sahifa topilmadi.</div>`;
 }
 
+window.addEventListener("session-expired", () => {
+  adminChecked = false;
+  renderNav();
+  showToast("Sessiya muddati tugadi. Iltimos, qayta kiring.", "error");
+  navigate("/login");
+});
+
 window.addEventListener("hashchange", router);
 window.addEventListener("DOMContentLoaded", router);
 
@@ -216,16 +271,7 @@ function pageVerify() {
   `;
 
   const digits = [...document.querySelectorAll(".otp-digit")];
-  digits.forEach((input, i) => {
-    input.addEventListener("input", () => {
-      input.value = input.value.replace(/\D/g, "");
-      if (input.value && digits[i + 1]) digits[i + 1].focus();
-    });
-    input.addEventListener("keydown", (e) => {
-      if (e.key === "Backspace" && !input.value && digits[i - 1]) digits[i - 1].focus();
-    });
-  });
-  digits[0].focus();
+  bindOtpInputs(digits);
 
   document.getElementById("verify-form").addEventListener("submit", async (e) => {
     e.preventDefault();
@@ -253,14 +299,9 @@ function pageVerify() {
     }
   });
 
-  document.getElementById("resend-link").addEventListener("click", async (e) => {
+  document.getElementById("resend-link").addEventListener("click", (e) => {
     e.preventDefault();
-    try {
-      await UsersAPI.resendCode();
-      showToast("Kod qayta yuborildi");
-    } catch (err) {
-      showToast(err.message, "error");
-    }
+    requestNewCode(digits);
   });
 }
 
@@ -328,6 +369,8 @@ function pageCompleteProfile() {
 }
 
 function pageLogin() {
+  if (Auth.isLoggedIn()) { navigate("/"); return; }
+
   app.innerHTML = `
     <div class="card auth-card">
       <h1 class="auth-title">Kitob do'koni</h1>
@@ -430,21 +473,18 @@ function pageForgotPasswordVerify() {
         <div id="forgot-verify-error" class="error-text" hidden></div>
         <button type="submit" class="primary block">Tasdiqlash</button>
       </form>
+      <p class="auth-foot">Kod kelmadimi? <a href="#" id="fp-resend-link">Yangi kod olish</a></p>
       <p class="auth-foot"><a href="#/forgot-password">Ortga</a></p>
     </div>
   `;
 
   const digits = [...document.querySelectorAll(".fp-otp-digit")];
-  digits.forEach((input, i) => {
-    input.addEventListener("input", () => {
-      input.value = input.value.replace(/\D/g, "");
-      if (input.value && digits[i + 1]) digits[i + 1].focus();
-    });
-    input.addEventListener("keydown", (e) => {
-      if (e.key === "Backspace" && !input.value && digits[i - 1]) digits[i - 1].focus();
-    });
+  bindOtpInputs(digits);
+
+  document.getElementById("fp-resend-link").addEventListener("click", (e) => {
+    e.preventDefault();
+    requestNewCode(digits);
   });
-  digits[0].focus();
 
   document.getElementById("forgot-verify-form").addEventListener("submit", async (e) => {
     e.preventDefault();
@@ -459,14 +499,16 @@ function pageForgotPasswordVerify() {
     const btn = e.target.querySelector("button");
     btn.disabled = true;
     try {
-    const data = await UsersAPI.forgotPasswordVerify(
-        forgotPasswordContact,
-        code
-    );
+      const data = await UsersAPI.forgotPasswordVerify(code);
+      if (!data || !data.reset_token) {
+        throw new Error("Kod tasdiqlandi, lekin server reset_token qaytarmadi.");
+      }
       Auth.setTokens({ access: data.reset_token });
       navigate("/reset-password");
     } catch (err) {
-      errorBox.textContent = err.message;
+      errorBox.textContent = err.status === 401
+        ? "Bu qadam uchun brauzerda faol sessiya kerak (server /users/verify/ da token talab qiladi). Avval tizimga kiring."
+        : err.message;
       errorBox.hidden = false;
     } finally {
       btn.disabled = false;
@@ -659,14 +701,17 @@ function renderBookGrid(container, books, pagination) {
 }
 
 async function pageBookDetail(id) {
+  const myHash = location.hash;
   app.innerHTML = `<div class="empty-state">Yuklanmoqda...</div>`;
   let book;
   try {
     book = await BooksAPI.detail(id);
   } catch (err) {
+    if (location.hash !== myHash) return;
     app.innerHTML = `<div class="empty-state">${escapeHtml(err.message)}</div>`;
     return;
   }
+  if (location.hash !== myHash) return;
 
   const isAvailable = book.status === "available";
 
@@ -735,8 +780,10 @@ function adminNavHtml(active) {
 }
 
 async function ensureAdminOrDeny() {
+  const myHash = location.hash;
   const isAdmin = adminChecked ? Auth.isAdmin() : await checkAdminAccess();
   adminChecked = true;
+  if (location.hash !== myHash) return false; // foydalanuvchi boshqa sahifaga o'tib ketdi
   if (!isAdmin) {
     app.innerHTML = `<div class="empty-state">Bu bo'limga faqat adminlar kira oladi.</div>`;
     return false;
@@ -864,7 +911,7 @@ async function pageAdminManage() {
 async function loadManageTable() {
   const area = document.getElementById("manage-area");
   try {
-    const data = await BooksAPI.list(1);
+    const data = await BooksAPI.list(1, 100);
     if (!data.results || data.results.length === 0) {
       area.innerHTML = `<div class="empty-state">Hozircha kitob yo'q.</div>`;
       return;

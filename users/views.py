@@ -2,6 +2,7 @@ import datetime
 
 from django.core.exceptions import ObjectDoesNotExist
 from django.db.models import Q
+from django.utils import timezone
 from rest_framework import status
 from rest_framework.exceptions import ValidationError, NotFound
 from rest_framework.permissions import IsAuthenticated, AllowAny
@@ -12,7 +13,6 @@ from rest_framework_simplejwt.exceptions import TokenError
 from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 
-from .models import UserConfirmation
 from shared.utility import send_email, check_email_or_phone
 from .models import User
 from .constants import AuthStatus, AuthType, ConfirmationPurpose
@@ -92,39 +92,114 @@ class VerifyView(APIView):
         verify.save()
 
         return verify
+
+
+
 class GetNewVerifyView(APIView):
     permission_classes = [IsAuthenticated]
 
-
     def get(self, request, *args, **kwargs):
-        user = self.request.user
-        self.check_verification(user)
-        if user.auth_type == (AuthType.VIA_EMAIL):
-            code = user.create_verify_code(AuthType.VIA_EMAIL)
-            send_email(user.email, code)
-        elif user.auth_type == (AuthType.VIA_PHONE):
-            code = user.create_verify_code(AuthType.VIA_PHONE)
-            send_email(user.phone_number, code)
-        else:
-            data = {
-                "message": "Email or phone number is incorrect.",
-            }
-            raise ValidationError(data)
-        return Response(
-            data={
-                "success": True,
-                "message": "Your verification code has been resent.",
+        user = request.user
 
-            }
-        )
+        # Agar eski aktiv tasdiqlash kodi bo'lsa,
+        # yangi kod yubormaymiz
+        self.check_verification(user)
+
+        if user.auth_type == AuthType.VIA_EMAIL:
+            code = user.create_verify_code(
+                AuthType.VIA_EMAIL,
+                ConfirmationPurpose.SIGNUP
+            )
+            send_email(user.email, code)
+
+        elif user.auth_type == AuthType.VIA_PHONE:
+            code = user.create_verify_code(
+                AuthType.VIA_PHONE,
+                ConfirmationPurpose.SIGNUP
+            )
+            send_email(user.phone_number, code)
+
+        else:
+            raise ValidationError({
+                "message": "Email or phone number is incorrect."
+            })
+
+        return Response({
+            "success": True,
+            "message": "Your verification code has been resent."
+        })
+
     @staticmethod
     def check_verification(user):
-        verifies =user.verify_codes.filter(expiration_time__gte=datetime.datetime.now(), is_confirmed=False)
+        verifies = user.verify_codes.filter(
+            expiration_time__gte=timezone.now(),
+            is_confirmed=False
+        )
+
         if verifies.exists():
-            data = {
-                "message": "Your verification code is available.",
-            }
-            raise ValidationError(data)
+            raise ValidationError({
+                "message": "Your verification code is available."
+            })
+
+class ForgotPasswordResendView(APIView):
+    permission_classes = [AllowAny]
+
+    def post(self, request, *args, **kwargs):
+        email_or_phone = request.data.get("email_or_phone")
+
+        if not email_or_phone:
+            raise ValidationError({
+                "message": "Email or phone number is required."
+            })
+
+        user = User.objects.filter(
+            Q(email=email_or_phone) |
+            Q(phone_number=email_or_phone)
+        ).first()
+
+        if not user:
+            raise ValidationError({
+                "message": "User not found."
+            })
+
+        self.check_verification(user)
+
+        if user.auth_type == AuthType.VIA_EMAIL:
+            code = user.create_verify_code(
+                AuthType.VIA_EMAIL,
+                ConfirmationPurpose.FORGOT_PASSWORD
+            )
+            send_email(user.email, code)
+
+        elif user.auth_type == AuthType.VIA_PHONE:
+            code = user.create_verify_code(
+                AuthType.VIA_PHONE,
+                ConfirmationPurpose.FORGOT_PASSWORD
+            )
+            send_email(user.phone_number, code)
+
+        else:
+            raise ValidationError({
+                "message": "Email or phone number is incorrect."
+            })
+
+        return Response({
+            "success": True,
+            "message": "Your verification code has been resent."
+        })
+
+    @staticmethod
+    def check_verification(user):
+        verifies = user.verify_codes.filter(
+            expiration_time__gte=timezone.now(),
+            is_confirmed=False
+        )
+
+        if verifies.exists():
+            raise ValidationError({
+                "message": "Your verification code is available."
+            })
+
 
 
 class ChangeUserInformationView(UpdateAPIView):
