@@ -14,7 +14,7 @@ from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 
 from shared.utility import send_email, check_email_or_phone
-from .models import User
+from .models import User, UserConfirmation
 from .constants import AuthStatus, AuthType, ConfirmationPurpose
 from .serilalizers import SignUpSerializer, ChangeUserInformationSerializer, LoginSerializer, \
     LoginRefreshSerializer, LogoutSerializer, ResetPasswordSerializer, ForgotPasswordSerializer
@@ -29,71 +29,84 @@ class VerifyView(APIView):
     permission_classes = (AllowAny,)
 
     def post(self, request, *args, **kwargs):
-        code = request.data.get('code')
-        email_or_phone = request.data.get('email_or_phone')
+        code = request.data.get("code")
+
+        if not code:
+            raise ValidationError({
+                "message": "Verification code is required."
+            })
 
         try:
             code = int(code)
         except (ValueError, TypeError):
-            raise ValidationError("Invalid verification code.")
-
-        # Forgot password uchun user email/phone orqali topiladi
-        if email_or_phone:
-            user = User.objects.filter(
-                Q(email=email_or_phone) |
-                Q(phone_number=email_or_phone)
-            ).first()
-
-            if not user:
-                raise ValidationError("User not found.")
-
-        # Signup verification uchun token orqali kelgan user
-        else:
-            if not request.user.is_authenticated:
-                raise ValidationError("Email or phone number is required.")
-
-            user = request.user
-
-        verify = self.check_verify(user, code)
-
-        if verify.purpose == ConfirmationPurpose.SIGNUP:
-            if user.auth_status == AuthStatus.NEW:
-                user.auth_status = AuthStatus.CODE_VERIFIED
-                user.save()
-
-            return Response({
-                "success": True,
-                "auth_status": user.auth_status,
-                "access": user.token()['access'],
-                "refresh": user.token()['refresh']
+            raise ValidationError({
+                "message": "Invalid verification code."
             })
 
-        if verify.purpose == ConfirmationPurpose.FORGOT_PASSWORD:
+        # 1. Avval FORGOT_PASSWORD code ni tekshiramiz
+        verify = UserConfirmation.objects.filter(
+            code=code,
+            purpose=ConfirmationPurpose.FORGOT_PASSWORD,
+            expiration_time__gte=timezone.now(),
+            is_confirmed=False
+        ).select_related("user").first()
+
+        if verify:
+            verify.is_confirmed = True
+            verify.save(update_fields=["is_confirmed"])
+
+            user = verify.user
+
             return Response({
                 "success": True,
                 "message": "Verification successful.",
-                "reset_token": user.token()['access']
+                "reset_token": user.token()["access"]
             })
 
+        # 2. Agar forgot-password code bo'lmasa,
+        #    signup verificationni tekshiramiz
+        if not request.user.is_authenticated:
+            raise ValidationError({
+                "message": "Your verification code has expired or incorrect."
+            })
+
+        verify = self.check_verify(
+            request.user,
+            code,
+            ConfirmationPurpose.SIGNUP
+        )
+
+        user = request.user
+
+        if user.auth_status == AuthStatus.NEW:
+            user.auth_status = AuthStatus.CODE_VERIFIED
+            user.save()
+
+        return Response({
+            "success": True,
+            "auth_status": user.auth_status,
+            "access": user.token()["access"],
+            "refresh": user.token()["refresh"]
+        })
+
     @staticmethod
-    def check_verify(user, code):
+    def check_verify(user, code, purpose):
         verify = user.verify_codes.filter(
-            expiration_time__gte=datetime.datetime.now(),
+            expiration_time__gte=timezone.now(),
             code=code,
-            is_confirmed=False
+            is_confirmed=False,
+            purpose=purpose
         ).first()
 
         if not verify:
             raise ValidationError({
-                "message": "Your verification code has expired or incorrect.",
+                "message": "Your verification code has expired or incorrect."
             })
 
         verify.is_confirmed = True
-        verify.save()
+        verify.save(update_fields=["is_confirmed"])
 
         return verify
-
-
 
 class GetNewVerifyView(APIView):
     permission_classes = [IsAuthenticated]
@@ -110,14 +123,14 @@ class GetNewVerifyView(APIView):
                 AuthType.VIA_EMAIL,
                 ConfirmationPurpose.SIGNUP
             )
-            send_email(user.email, code)
+            send_email(user.email, code, ConfirmationPurpose.SIGNUP)
 
         elif user.auth_type == AuthType.VIA_PHONE:
             code = user.create_verify_code(
                 AuthType.VIA_PHONE,
                 ConfirmationPurpose.SIGNUP
             )
-            send_email(user.phone_number, code)
+            send_email(user.phone_number, code, ConfirmationPurpose.SIGNUP)
 
         else:
             raise ValidationError({
@@ -144,8 +157,8 @@ class GetNewVerifyView(APIView):
 class ForgotPasswordResendView(APIView):
     permission_classes = [AllowAny]
 
-    def post(self, request, *args, **kwargs):
-        email_or_phone = request.data.get("email_or_phone")
+    def get(self, request, *args, **kwargs):
+        email_or_phone = request.query_params.get("email_or_phone")
 
         if not email_or_phone:
             raise ValidationError({
@@ -169,14 +182,22 @@ class ForgotPasswordResendView(APIView):
                 AuthType.VIA_EMAIL,
                 ConfirmationPurpose.FORGOT_PASSWORD
             )
-            send_email(user.email, code)
+            send_email(
+                user.email,
+                code,
+                ConfirmationPurpose.FORGOT_PASSWORD
+            )
 
         elif user.auth_type == AuthType.VIA_PHONE:
             code = user.create_verify_code(
                 AuthType.VIA_PHONE,
                 ConfirmationPurpose.FORGOT_PASSWORD
             )
-            send_email(user.phone_number, code)
+            send_email(
+                user.phone_number,
+                code,
+                ConfirmationPurpose.FORGOT_PASSWORD
+            )
 
         else:
             raise ValidationError({
@@ -192,15 +213,14 @@ class ForgotPasswordResendView(APIView):
     def check_verification(user):
         verifies = user.verify_codes.filter(
             expiration_time__gte=timezone.now(),
-            is_confirmed=False
+            is_confirmed=False,
+            purpose=ConfirmationPurpose.FORGOT_PASSWORD
         )
 
         if verifies.exists():
             raise ValidationError({
                 "message": "Your verification code is available."
             })
-
-
 
 class ChangeUserInformationView(UpdateAPIView):
     permission_classes = (IsAuthenticated,)
@@ -268,10 +288,10 @@ class ForgetPasswordView(APIView):
         user = serializer.validated_data.get('user')
         if check_email_or_phone(email_or_phone) == 'phone':
             code = user.create_verify_code(AuthType.VIA_PHONE, ConfirmationPurpose.FORGOT_PASSWORD)
-            send_email(email_or_phone, code)
+            send_email(email_or_phone, code, ConfirmationPurpose.FORGOT_PASSWORD)
         elif check_email_or_phone(email_or_phone) == 'email':
             code = user.create_verify_code(AuthType.VIA_EMAIL, ConfirmationPurpose.FORGOT_PASSWORD)
-            send_email(email_or_phone, code)
+            send_email(email_or_phone, code, ConfirmationPurpose.FORGOT_PASSWORD)
 
         return Response(
             {

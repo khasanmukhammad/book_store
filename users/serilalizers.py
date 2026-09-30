@@ -38,10 +38,10 @@ class SignUpSerializer(serializers.ModelSerializer):
         user = super(SignUpSerializer, self).create(validated_data)
         if user.auth_type == AuthType.VIA_EMAIL:
             code = user.create_verify_code(AuthType.VIA_EMAIL, ConfirmationPurpose.SIGNUP )
-            send_email(user.email, code)
+            send_email(user.email, code, ConfirmationPurpose.SIGNUP)
         elif user.auth_type == AuthType.VIA_PHONE:
             code = user.create_verify_code(AuthType.VIA_PHONE, ConfirmationPurpose.SIGNUP)
-            send_email(user.phone_number, code)
+            send_email(user.phone_number, code, ConfirmationPurpose.SIGNUP)
             #send_phone_code(user.phone_number, code)
         user.save()
         return user

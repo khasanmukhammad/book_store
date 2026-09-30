@@ -186,6 +186,7 @@ const UsersAPI = {
   verify: (code) =>
     apiRequest("/users/verify/", { method: "POST", auth: true, body: { code } }),
 
+  // Signup oqimida yangi kod so'rash — token orqali (IsAuthenticated).
   resendCode: () =>
     apiRequest("/users/new-verify/", { method: "GET", auth: true }),
 
@@ -202,6 +203,16 @@ const UsersAPI = {
 
   forgotPasswordRequest: (email_or_phone) =>
     apiRequest("/users/forget-password/", { method: "POST", body: { email_or_phone } }),
+
+  // Parolni tiklash oqimida yangi kod so'rash — email/telefon orqali
+  // (AllowAny, token kerak emas).
+  forgotPasswordResend: (email_or_phone) =>
+      apiRequest(
+    `/users/forgot-resend-code/?email_or_phone=${encodeURIComponent(email_or_phone)}`,
+    {
+      method: "GET"
+    }
+  ),
 
   // Forgot-password kodi ham xuddi shu /users/verify/ orqali tekshiriladi.
   // Kod to'g'ri va maqsadi FORGOT_PASSWORD bo'lsa, backend "reset_token" qaytaradi.

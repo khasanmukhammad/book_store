@@ -7,6 +7,8 @@ from django.core.mail import EmailMessage
 from django.template.loader import render_to_string
 from rest_framework.exceptions import ValidationError
 
+from users.constants import ConfirmationPurpose
+
 email_regex = re.compile(r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,7}\b")
 phone_regex = re.compile(r"(\+[0-9]+\s*)?(\([0-9]+\))?[\s0-9\-]+[0-9]+")
 username_regex = re.compile(r"^[a-zA-Z0-9_.-]+$")
@@ -63,21 +65,26 @@ class Email:
             email.content_subtype = "html"
         EmailThread(email).start()
 
+def send_email(email, code, purpose):
 
-def send_email(email, code):
-    html_content = render_to_string(
-        'email/verification_code.html',
-        {"code": code}
-    )
-    Email.send_email(
-        {
-            "subject": "SignUp",
-            "to_email": email,
-            "body": html_content,
-            "content_type": "html",
-        }
+    if purpose == ConfirmationPurpose.SIGNUP:
+        subject = "SignUp"
+
+    elif purpose == ConfirmationPurpose.FORGOT_PASSWORD:
+        subject = "Forgot Password"
+
+    else:
+        subject = "Verification Code"
+
+    message = f"Your verification code is: {code}"
+
+    email_message = EmailMessage(
+        subject=subject,
+        body=message,
+        to=[email],
     )
 
+    email_message.send()
 
 def send_phone_code(phone, code):
     account_sid = config('account_sid')

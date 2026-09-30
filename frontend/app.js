@@ -23,13 +23,20 @@ function escapeHtml(str) {
   }[c]));
 }
 
-// Yangi tasdiqlash kodi so'rash (GET /users/new-verify/). Signup va parolni
-// tiklash sahifalarida bir xil ishlatiladi. Backend eski kod hali amal qilayotgan
-// bo'lsa yangisini bermaydi ("Your verification code is available.") — shunda
-// foydalanuvchiga tushunarli xabar ko'rsatamiz.
-async function requestNewCode(digits) {
+// Yangi tasdiqlash kodi so'rash.
+//  - Signup oqimida: GET /users/new-verify/ (token orqali, IsAuthenticated)
+//  - Parolni tiklash oqimida: POST /users/forgot-resend-code/ (email/telefon
+//    orqali, AllowAny — token kerak emas)
+// Backend eski kod hali amal qilayotgan bo'lsa yangisini bermaydi
+// ("Your verification code is available.") — shunda foydalanuvchiga
+// tushunarli xabar ko'rsatamiz.
+async function requestNewCode(digits, contact) {
   try {
-    await UsersAPI.resendCode();
+    if (contact) {
+      await UsersAPI.forgotPasswordResendCode(contact);
+    } else {
+      await UsersAPI.resendCode();
+    }
     showToast("Kod qayta yuborildi");
     digits.forEach((d) => { d.value = ""; });
     digits[0].focus();
@@ -445,7 +452,13 @@ function pageForgotPasswordRequest() {
     const btn = e.target.querySelector("button");
     btn.disabled = true;
     try {
-      await UsersAPI.forgotPasswordRequest(contact);
+      const data = await UsersAPI.forgotPasswordRequest(contact);
+      localStorage.setItem("forgotPasswordContact", contact);
+      // Backend endi shu qadamning o'zida token qaytaradi (access/refresh),
+      // shu tufayli keyingi qadamlar ("Yangi kod olish", kodni tasdiqlash)
+      // IsAuthenticated bo'lsa ham ishlay oladi — chunki foydalanuvchi hali
+      // tizimga kirmagan, lekin endi bu tokenga ega bo'ladi.
+      if (data && data.access) Auth.setTokens(data);
       forgotPasswordContact = contact;
       showToast("Tasdiqlash kodi yuborildi");
       navigate("/forgot-password-verify");
@@ -481,10 +494,24 @@ function pageForgotPasswordVerify() {
   const digits = [...document.querySelectorAll(".fp-otp-digit")];
   bindOtpInputs(digits);
 
-  document.getElementById("fp-resend-link").addEventListener("click", (e) => {
-    e.preventDefault();
-    requestNewCode(digits);
-  });
+document.getElementById("fp-resend-link").addEventListener("click", async (e) => {
+  e.preventDefault();
+
+  const errorBox = document.getElementById("forgot-verify-error");
+  errorBox.hidden = true;
+
+  try {
+    const data = await UsersAPI.forgotPasswordResend(forgotPasswordContact);
+
+    if (data?.message) {
+      errorBox.textContent = data.message;
+      errorBox.hidden = false;
+    }
+  } catch (err) {
+    errorBox.textContent = err.message;
+    errorBox.hidden = false;
+  }
+});
 
   document.getElementById("forgot-verify-form").addEventListener("submit", async (e) => {
     e.preventDefault();
